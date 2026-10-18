@@ -1,0 +1,36 @@
+name: Build debug APK
+
+on:
+  push:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+
+    steps:
+      - name: Check out current branch and native submodules
+        uses: actions/checkout@v7
+        with:
+          submodules: recursive
+
+      - name: Set up Java (same major version as AppVeyor)
+        uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: '25'
+
+      # The hosted runner supplies the Android SDK and pinned NDK. Gradle
+      # uses the SDK/NDK versions and ndk-build configuration in app/build.gradle.
+      - name: Build non-root debug APK
+        run: ./gradlew --no-daemon :app:assembleNonRootDebug
+
+      - name: Upload debug APK
+        uses: actions/upload-artifact@v7
+        with:
+          name: moonlight-android-nonroot-debug
+          path: app/build/outputs/apk/nonRoot/debug/*.apk
+          if-no-files-found: error
