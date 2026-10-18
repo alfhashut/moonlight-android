@@ -24,6 +24,63 @@ You can follow development on our [Discord server](https://moonlight-stream.org/
 * In moonlight-android/, create a file called ‘local.properties’. Add an ‘ndk.dir=’ property to the local.properties file and set it equal to your NDK directory.
 * Build the APK using Android Studio or gradle
 
+## Experimental native touchscreen passthrough
+
+In **Settings > Input settings**, enable **Native touchscreen passthrough** and
+start a new stream to a Sunshine host advertising native pen/touch support.
+The setting defaults to **OFF**. With it off, upstream trackpad/absolute-mouse
+behavior and gestures remain unchanged.
+
+When enabled, finger contacts use the existing
+`NvConnection.sendTouchEvent()` -> `MoonBridge.sendTouchEvent()` ->
+`LiSendTouchEvent()` path instead of mouse emulation. This takes precedence over
+the touchscreen-trackpad setting without changing that saved preference.
+The three-finger keyboard shortcut is bypassed so three or more contacts can
+reach the host. Physical mouse, keyboard, controller, and existing stylus routing
+are retained. On-screen controller buttons retain their existing local handling.
+
+Contact IDs come from Android pointer IDs, never pointer indexes. MOVE sends one
+packet for each active contact; DOWN/UP target the action-index pointer.
+ACTION_CANCEL sends CANCEL_ALL, and FLAG_CANCELED on UP cancels that contact.
+Focus loss, pause, and releasing input capture cancel active native contacts.
+Coordinates are clamped/normalized to the actual aspect-fitted StreamView
+(0..1), including its offset when events arrive through the background view.
+Pressure is normalized/clamped to 0..1. Contact ellipse axes are normalized to the
+video view using the existing native-input projection convention; unavailable
+pressure/contact area use zero, and unavailable rotation uses LI_ROT_UNKNOWN.
+
+The pinned native protocol carries one contact per packet with an opaque 32-bit
+ID. It has no client-side fixed contact-count limit, and this implementation
+does not use the legacy two-touch context array. Actual simultaneous-contact
+limits depend on Android hardware and the host. Sunshine native touch support
+must be advertised (LI_FF_PEN_TOUCH_EVENTS); mouse events cannot provide an
+equivalent fallback. Nonzero native send results are logged and shown once;
+native sending stops for that stream, with one best-effort CANCEL_ALL for
+existing contacts. Events stay consumed rather than producing duplicate mouse
+input. Reconnect after fixing the host or turn the setting off for mouse mode.
+A successful send means the native library queued the packet, not that the host
+injected a contact. State changes are sent reliably by the existing protocol;
+MOVE packets may be dropped under congestion.
+
+Host-side translation tests require only installed Python 3 and a JDK capable of
+compiling Java 17. No downloads, SDK, emulator, JNI loading, or Gradle are needed:
+
+```sh
+python3 tests/run_native_touch_tests.py
+```
+
+The tests compile the real MoonBridge constants and plain-Java interfaces,
+verify constants against the pinned native header and the preference default,
+and exercise contact identity/state, normalization, cancellation, and failures.
+They do not run Android framework MotionEvents or prove host injection.
+Generated classes and temporary data stay under the repository's disk-backed
+`build/native-touch-tests/`, never `/tmp` or tmpfs. Initialize the repository's
+existing native submodules before running the protocol checks.
+
+APK compilation remains the existing GitHub Actions debug workflow using
+`:app:assembleNonRootDebug`. No local touch injection, host-side forwarding, or
+other application/runtime integration is part of this experiment.
+
 ## Authors
 
 * [Cameron Gutman](https://github.com/cgutman)  

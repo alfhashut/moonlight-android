@@ -195,6 +195,10 @@
     <string name="summary_checkbox_gamepad_motion_fallback">Uses your device\'s built-in motion sensors if gamepad sensors are not supported by your connected gamepad or your Android version.\nNote: Enabling this option may cause your gamepad to appear as a PlayStation controller on the host.</string>
 
     <string name="category_input_settings">Input Settings</string>
+    <string name="title_native_touchscreen_passthrough">Native touchscreen passthrough</string>
+    <string name="summary_native_touchscreen_passthrough">Experimental: send real multitouch contacts to Sunshine hosts with native touch support. Overrides touchscreen mouse/trackpad emulation and the three-finger keyboard gesture. Reconnect after changing this setting.</string>
+    <string name="native_touch_unsupported">This host does not support native touchscreen passthrough. Enable native touch on a compatible Sunshine host and reconnect, or disable this setting to use mouse emulation.</string>
+    <string name="native_touch_send_failed">Native touchscreen passthrough stopped (error %1$d). Reconnect to try again, or disable this setting to use mouse emulation.</string>
     <string name="title_checkbox_touchscreen_trackpad">Use the touchscreen as a trackpad</string>
     <string name="summary_checkbox_touchscreen_trackpad">If enabled, the touchscreen acts like a trackpad. If disabled, the touchscreen directly controls the mouse cursor.</string>
     <string name="title_checkbox_absolute_mouse_mode">Remote desktop mouse mode</string>

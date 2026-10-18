@@ -8,6 +8,7 @@ import com.limelight.binding.input.KeyboardTranslator;
 import com.limelight.binding.input.capture.InputCaptureManager;
 import com.limelight.binding.input.capture.InputCaptureProvider;
 import com.limelight.binding.input.touch.AbsoluteTouchContext;
+import com.limelight.binding.input.touch.NativeTouchContext;
 import com.limelight.binding.input.touch.RelativeTouchContext;
 import com.limelight.binding.input.driver.UsbDriverService;
 import com.limelight.binding.input.evdev.EvdevListener;
@@ -94,8 +95,9 @@ public class Game extends Activity implements SurfaceHolder.Callback,
         PerfOverlayListener, UsbDriverService.UsbDriverStateListener, View.OnKeyListener {
     private int lastButtonState = 0;
 
-    // Only 2 touches are supported
+    // Mouse-emulation contexts only; native touch tracks pointer IDs separately.
     private final TouchContext[] touchContextMap = new TouchContext[2];
+    private NativeTouchContext nativeTouchContext;
     private long threeFingerDownTime = 0;
 
     private static final int REFERENCE_HORIZ_RES = 1280;
@@ -492,6 +494,15 @@ public class Game extends Activity implements SurfaceHolder.Callback,
         InputManager inputManager = (InputManager) getSystemService(Context.INPUT_SERVICE);
         inputManager.registerInputDeviceListener(keyboardTranslator, null);
 
+        // Native touch is explicitly opt-in and independent of mouse/trackpad mode.
+        if (prefConfig.nativeTouchscreenPassthrough) {
+            nativeTouchContext = new NativeTouchContext(conn, streamView, result -> {
+                int message = result == MoonBridge.LI_ERR_UNSUPPORTED ?
+                        R.string.native_touch_unsupported : R.string.native_touch_send_failed;
+                Toast.makeText(Game.this, getString(message, result), Toast.LENGTH_LONG).show();
+            });
+        }
+
         // Initialize touch contexts
         for (int i = 0; i < touchContextMap.length; i++) {
             if (!prefConfig.touchscreenTrackpad) {
@@ -741,6 +752,9 @@ public class Game extends Activity implements SurfaceHolder.Callback,
     @Override
     public void onWindowFocusChanged(boolean hasFocus) {
         super.onWindowFocusChanged(hasFocus);
+        if (!hasFocus && nativeTouchContext != null) {
+            nativeTouchContext.cancel();
+        }
 
         // We can't guarantee the state of modifiers keys which may have
         // lifted while focus was not on us. Clear the modifier state.
@@ -1062,6 +1076,9 @@ public class Game extends Activity implements SurfaceHolder.Callback,
 
     @Override
     protected void onPause() {
+        if (nativeTouchContext != null) {
+            nativeTouchContext.cancel();
+        }
         if (isFinishing()) {
             // Stop any further input device notifications before we lose focus (and pointer capture)
             if (controllerHandler != null) {
@@ -1159,6 +1176,9 @@ public class Game extends Activity implements SurfaceHolder.Callback,
             }
         }
         else {
+            if (nativeTouchContext != null) {
+                nativeTouchContext.cancel();
+            }
             inputCaptureProvider.disableCapture();
         }
 
@@ -1743,43 +1763,6 @@ public class Game extends Activity implements SurfaceHolder.Callback,
         }
     }
 
-    private boolean sendTouchEventForPointer(View view, MotionEvent event, byte eventType, int pointerIndex) {
-        float[] normalizedCoords = getStreamViewRelativeNormalizedXY(view, event, pointerIndex);
-        float[] normalizedContactArea = getStreamViewNormalizedContactArea(event, pointerIndex);
-        return conn.sendTouchEvent(eventType, event.getPointerId(pointerIndex),
-                normalizedCoords[0], normalizedCoords[1],
-                getPressureOrDistance(event, pointerIndex),
-                normalizedContactArea[0], normalizedContactArea[1],
-                getRotationDegrees(event, pointerIndex)) != MoonBridge.LI_ERR_UNSUPPORTED;
-    }
-
-    private boolean trySendTouchEvent(View view, MotionEvent event) {
-        byte eventType = getLiTouchTypeFromEvent(event);
-        if (eventType < 0) {
-            return false;
-        }
-
-        if (event.getActionMasked() == MotionEvent.ACTION_MOVE) {
-            // Move events may impact all active pointers
-            for (int i = 0; i < event.getPointerCount(); i++) {
-                if (!sendTouchEventForPointer(view, event, eventType, i)) {
-                    return false;
-                }
-            }
-            return true;
-        }
-        else if (event.getActionMasked() == MotionEvent.ACTION_CANCEL) {
-            // Cancel impacts all active pointers
-            return conn.sendTouchEvent(MoonBridge.LI_TOUCH_EVENT_CANCEL_ALL, 0,
-                    0, 0, 0, 0, 0,
-                    MoonBridge.LI_ROT_UNKNOWN) != MoonBridge.LI_ERR_UNSUPPORTED;
-        }
-        else {
-            // Up, Down, and Hover events are specific to the action index
-            return sendTouchEventForPointer(view, event, eventType, event.getActionIndex());
-        }
-    }
-
     // Returns true if the event was consumed
     // NB: View is only present if called from a view callback
     private boolean handleMotionEvent(View view, MotionEvent event) {
@@ -2000,6 +1983,13 @@ public class Game extends Activity implements SurfaceHolder.Callback,
                     return true;
                 }
 
+                // This branch is finger-only: physical mouse, pen, and controller routing
+                // above is unchanged. Native mode takes precedence over both mouse touch
+                // contexts and the legacy three-finger software-keyboard gesture.
+                if (nativeTouchContext != null && nativeTouchContext.handleTouchEvent(view, event)) {
+                    return true;
+                }
+
                 // If this is the parent view, we'll offset our coordinates to appear as if they
                 // are relative to the StreamView like our StreamView touch events are.
                 float xOffset, yOffset;
@@ -2031,15 +2021,6 @@ public class Game extends Activity implements SurfaceHolder.Callback,
 
                     return true;
                 }
-
-                // TODO: Re-enable native touch when have a better solution for handling
-                // cancelled touches from Android gestures and 3 finger taps to activate
-                // the software keyboard.
-                /*if (!prefConfig.touchscreenTrackpad && trySendTouchEvent(view, event)) {
-                    // If this host supports touch events and absolute touch is enabled,
-                    // send it directly as a touch event.
-                    return true;
-                }*/
 
                 TouchContext context = getTouchContext(actionIndex);
                 if (context == null) {
